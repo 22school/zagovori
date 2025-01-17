@@ -1,15 +1,21 @@
 services:
   - type: web
     name: telegram-bot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot/run.py
+    env: docker
+    region: singapore
+    buildCommand: docker build -t telegram-bot .
+    startCommand: docker run --env-file .env telegram-bot
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        value: 8118714084:AAH3P6TzsIW12GziKOL2WPTQiy3YQzNb-gA
       - key: ADMIN_IDS
-        sync: false
+        value: 5342288401
+      - key: DATABASE_URL
+        value: /app/data/bot.db
       - key: AI_PROVIDER
-        sync: false
+        value: google
       - key: AI_API_KEY
-        sync: false 
+        value: AIzaSyCKgsN6BZvu1F7Nsl_dm5Jpz0k4QyoqGpg
+      - key: USE_REDIS
+        value: false
+    autoDeploy: true 
