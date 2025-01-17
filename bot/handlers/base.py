@@ -1,11 +1,11 @@
-from aiogram import Dispatcher, types
-from aiogram.dispatcher.filters import Command
+from aiogram import Dispatcher
+from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
 
 from database.models import User, Subscription
-from services.openai_service import OpenAIService
+from services.ai_service import AIService
 
 # Константы
 FREE_MESSAGES_LIMIT = 10  # Лимит бесплатных сообщений в день
@@ -73,29 +73,15 @@ async def cmd_profile(message: types.Message, session: AsyncSession):
     
     await message.answer(profile_text)
 
-async def handle_message(message: types.Message, session: AsyncSession, openai_service: OpenAIService):
-    user = await get_or_create_user(session, message.from_user)
-    
-    # Проверяем лимит сообщений для бесплатных пользователей
-    if not user.is_premium:
-        if user.messages_today >= FREE_MESSAGES_LIMIT:
-            return  # Middleware уже отправил сообщение о лимите
-        
-        user.messages_today += 1
-        user.last_message_date = datetime.now()
-        await session.commit()
-    
-    # Отправляем индикатор набора текста
-    await message.answer_chat_action("typing")
-    
-    # Обрабатываем сообщение через OpenAI
-    response = await openai_service.process_message(message.text)
-    await message.answer(response)
+async def handle_message(message: Message, ai_service: AIService):
+    try:
+        response = await ai_service.process_message(message.text)
+        await message.reply(response)
+    except Exception as e:
+        await message.reply("Произошла ошибка при обработке сообщения")
 
-def register_base_handlers(dp: Dispatcher, session_pool, openai_service: OpenAIService):
-    dp.register_message_handler(lambda msg: cmd_start(msg, session_pool()), Command("start"))
-    dp.register_message_handler(cmd_help, Command("help"))
-    dp.register_message_handler(lambda msg: cmd_profile(msg, session_pool()), Command("profile"))
+def register_base_handlers(dp: Dispatcher, session_pool, ai_service: AIService):
     dp.register_message_handler(
-        lambda msg: handle_message(msg, session_pool(), openai_service)
+        lambda message: handle_message(message, ai_service),
+        content_types=['text']
     ) 
