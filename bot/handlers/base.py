@@ -1,5 +1,5 @@
-from aiogram import Dispatcher
-from aiogram.types import Message
+from aiogram import Dispatcher, types
+from aiogram.dispatcher.filters import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
@@ -36,7 +36,7 @@ async def cmd_start(message: types.Message, session: AsyncSession):
         "Я бот для изучения казахского языка!\n\n"
         "Доступные команды:\n"
         "/help - Помощь\n"
-        "/subscribe - Оформить подписку"
+        "/profile - Ваш профиль"
     )
     
     await message.answer(welcome_text)
@@ -44,14 +44,12 @@ async def cmd_start(message: types.Message, session: AsyncSession):
 async def cmd_help(message: types.Message):
     help_text = (
         "🤖 Как пользоваться ботом:\n\n"
-        "1. Просто напишите мне сообщение на русском или казахском\n"
-        "2. Я помогу вам с переводом и объяснением\n"
-        "3. Бесплатно доступно 10 сообщений в день\n"
-        "4. Для полного доступа оформите подписку командой /subscribe\n\n"
+        "1. Просто напишите мне слово или фразу на русском или казахском\n"
+        "2. Я помогу вам с переводом и объяснением грамматики\n"
+        "3. Бесплатно доступно 10 сообщений в день\n\n"
         "Команды:\n"
         "/start - Начать сначала\n"
         "/help - Это сообщение\n"
-        "/subscribe - Оформить подписку\n"
         "/profile - Информация о профиле"
     )
     
@@ -60,28 +58,57 @@ async def cmd_help(message: types.Message):
 async def cmd_profile(message: types.Message, session: AsyncSession):
     user = await get_or_create_user(session, message.from_user)
     
-    subscription_status = "Активна" if user.is_premium else "Отсутствует"
     messages_left = FREE_MESSAGES_LIMIT - user.messages_today if not user.is_premium else "∞"
     
     profile_text = (
         f"👤 Профиль\n\n"
         f"Имя: {user.full_name}\n"
         f"Username: @{user.username}\n"
-        f"Подписка: {subscription_status}\n"
-        f"Сообщений осталось сегодня: {messages_left}"
+        f"Сообщений сегодня: {user.messages_today}\n"
+        f"Осталось сообщений: {messages_left}"
     )
     
     await message.answer(profile_text)
 
-async def handle_message(message: Message, ai_service: AIService):
+async def handle_message(message: types.Message, session: AsyncSession, ai_service: AIService):
     try:
+        # Получаем или создаем пользователя
+        user = await get_or_create_user(session, message.from_user)
+        
+        # Проверяем лимит сообщений
+        if not user.is_premium and user.messages_today >= FREE_MESSAGES_LIMIT:
+            await message.reply(
+                "Достигнут дневной лимит бесплатных сообщений.\n"
+                "Попробуйте снова завтра!"
+            )
+            return
+        
+        # Обновляем счетчик сообщений
+        user.messages_today += 1
+        user.last_message_date = datetime.now()
+        await session.commit()
+        
+        # Обрабатываем сообщение через AI
         response = await ai_service.process_message(message.text)
         await message.reply(response)
+        
     except Exception as e:
         await message.reply("Произошла ошибка при обработке сообщения")
 
 def register_base_handlers(dp: Dispatcher, session_pool, ai_service: AIService):
+    # Регистрируем обработчики команд
     dp.register_message_handler(
-        lambda message: handle_message(message, ai_service),
+        lambda msg: cmd_start(msg, session_pool()),
+        Command("start")
+    )
+    dp.register_message_handler(cmd_help, Command("help"))
+    dp.register_message_handler(
+        lambda msg: cmd_profile(msg, session_pool()),
+        Command("profile")
+    )
+    
+    # Регистрируем обработчик текстовых сообщений
+    dp.register_message_handler(
+        lambda msg: handle_message(msg, session_pool(), ai_service),
         content_types=['text']
     ) 
